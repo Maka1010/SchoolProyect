@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-brown: #4b3f36;
+  --brand-terracotta: #c97c5d;
+  --brand-sand: #e6d3b3;
+  --brand-paper: #f7f3ec;
+  --brand-gray: #8a8a8a;
+  --brand-gray2: #b0b0b0;
+  --brand-ink: #1a1a1a;
+  --brand-white: #ffffff;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  color: var(--brand-ink);
+  background:
+    radial-gradient(1100px 600px at 10% 0%, rgba(201, 124, 93, 0.18), transparent 55%),
+    radial-gradient(900px 500px at 85% 20%, rgba(230, 211, 179, 0.35), transparent 55%),
+    linear-gradient(180deg, var(--brand-paper), #ffffff);
+}
+
