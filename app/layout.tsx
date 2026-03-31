@@ -44,7 +44,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
           <footer className="rounded-2xl border border-brand-sand/60 bg-white/70 p-4 text-sm text-brand-gray shadow-soft backdrop-blur">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div className="font-medium text-brand-brown">Integrantes</div>
               <ul className="grid gap-1 sm:text-right">
                 <li>Miramontes Duarte Angel Gabriel 6CPGM</li>
               </ul>
