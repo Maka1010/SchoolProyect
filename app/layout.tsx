@@ -46,10 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div className="font-medium text-brand-brown">Integrantes</div>
               <ul className="grid gap-1 sm:text-right">
-                <li>MIramontes Duarte Angel Gabriel</li>
-                <li>Muñoz García  Iann jazhel</li>
-                <li>Martell Jimenez Karla Yaneth</li>
-                <li>Cruz Piz Sebastián Said</li>
+                <li>Miramontes Duarte Angel Gabriel 6CPGM</li>
               </ul>
             </div>
           </footer>
