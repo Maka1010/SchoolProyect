@@ -4,5 +4,12 @@ out
 dist
 .DS_Store
 *.log
-.env*
+
+# Variables locales (no subir secretos)
+.env
+.env*.local
+
+# Plantillas sí se versionan
+!.env.example
+!.env.local.example
 

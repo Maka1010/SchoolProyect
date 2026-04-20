@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
+import { getSupabaseClient } from "@/lib/supabaseClient";
 
 type Product = {
   id: string;
@@ -9,8 +10,6 @@ type Product = {
   price: number;
   createdAt: number;
 };
-
-const STORAGE_KEY = "schooltask.products.v1";
 
 function formatMXN(value: number) {
   try {
@@ -28,6 +27,24 @@ function normalizePrice(raw: string) {
   return Math.round(n * 100) / 100;
 }
 
+type DbProduct = {
+  id?: string;
+  name: string;
+  description: string;
+  price: number;
+  created_at?: string;
+};
+
+function toUiProduct(p: DbProduct, seed: string, fallbackIndex: number): Product {
+  return {
+    id: p.id ?? `${seed}-${fallbackIndex}-${p.name}-${p.price}`,
+    name: p.name,
+    description: p.description,
+    price: Math.round(Number(p.price) * 100) / 100,
+    createdAt: p.created_at ? new Date(p.created_at).getTime() : 0,
+  };
+}
+
 export default function Page() {
   const seedId = useId();
   const [name, setName] = useState("");
@@ -36,52 +53,50 @@ export default function Page() {
   const [products, setProducts] = useState<Product[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Carga inicial desde LocalStorage (solo cliente).
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as unknown;
-      if (!Array.isArray(parsed)) return;
-      const sanitized: Product[] = parsed
-        .filter((p) => p && typeof p === "object")
-        .map((p) => p as Partial<Product>)
-        .filter(
-          (p) =>
-            typeof p.id === "string" &&
-            typeof p.name === "string" &&
-            typeof p.description === "string" &&
-            typeof p.price === "number" &&
-            Number.isFinite(p.price) &&
-            typeof p.createdAt === "number"
-        )
-        .map((p) => ({
-          id: p.id as string,
-          name: p.name as string,
-          description: p.description as string,
-          price: Math.round((p.price as number) * 100) / 100,
-          createdAt: p.createdAt as number,
-        }))
-        .sort((a, b) => b.createdAt - a.createdAt);
+  const [busy, setBusy] = useState(false);
 
-      setProducts(sanitized);
-    } catch {
-      // Si hay datos corruptos, ignoramos y continuamos.
+  async function loadProducts() {
+    setBusy(true);
+    try {
+      const supabase = getSupabaseClient();
+      // Algunas tablas "products" solo tienen name/description/price.
+      // Intentamos primero con columnas comunes (id/created_at). Si no existen, hacemos fallback.
+      let data: DbProduct[] | null = null;
+
+      const attempt1 = await supabase
+        .from("products")
+        .select("id,name,description,price,created_at")
+        .order("created_at", { ascending: false });
+
+      if (!attempt1.error) {
+        data = attempt1.data as DbProduct[];
+      } else {
+        const attempt2 = await supabase
+          .from("products")
+          .select("id,name,description,price")
+          .order("id", { ascending: false });
+        if (attempt2.error) throw attempt2.error;
+        data = attempt2.data as DbProduct[];
+      }
+
+      const mapped: Product[] = (data ?? []).map((p, idx) => toUiProduct(p, seedId, idx));
+
+      setProducts(mapped);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudieron cargar los productos.");
+    } finally {
+      setBusy(false);
     }
+  }
+
+  // Carga inicial desde Supabase.
+  useEffect(() => {
+    loadProducts();
   }, []);
-
-  // Guardado automático en LocalStorage.
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
-    } catch {
-      // Si falla (quota / modo privado), no bloqueamos la app.
-    }
-  }, [products]);
 
   const total = useMemo(() => products.reduce((acc, p) => acc + p.price, 0), [products]);
 
-  function onAdd() {
+  async function onAdd() {
     setError(null);
     const trimmedName = name.trim();
     const trimmedDesc = description.trim();
@@ -92,31 +107,71 @@ export default function Page() {
     if (price === null) return setError("Ingresa un precio válido (ej. 199.99).");
     if (price === 0) return setError("El precio debe ser mayor a 0.");
 
-    const now = Date.now();
-    const next: Product = {
-      id: `${seedId}-${now}-${Math.random().toString(16).slice(2)}`,
-      name: trimmedName,
-      description: trimmedDesc,
-      price,
-      createdAt: now,
-    };
+    setBusy(true);
+    try {
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase
+        .from("products")
+        .insert({
+          name: trimmedName,
+          description: trimmedDesc,
+          price,
+        })
+        // Pedimos que regrese la fila insertada: si esto falla,
+        // NO actualizamos la UI y verás el error real.
+        .select("id,name,description,price,created_at")
+        .single();
+      if (error) throw error;
 
-    setProducts((prev) => [next, ...prev]);
-    setName("");
-    setDescription("");
-    setPriceRaw("");
+      const inserted = data as DbProduct;
+      const mapped = toUiProduct(inserted, seedId, 0);
+      setProducts((prev) => [mapped, ...prev]);
+      setName("");
+      setDescription("");
+      setPriceRaw("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo agregar el producto.");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function onRemove(id: string) {
-    setProducts((prev) => prev.filter((p) => p.id !== id));
+  async function onRemove(id: string) {
+    setError(null);
+    setBusy(true);
+    try {
+      const supabase = getSupabaseClient();
+      // Nota: si tu tabla no tiene columna id, este borrado no funcionará.
+      const { error } = await supabase.from("products").delete().eq("id", id);
+      if (error) throw error;
+      await loadProducts();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo quitar el producto.");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function onClearAll() {
+  async function onClearAll() {
     setError(null);
     if (products.length === 0) return;
     const ok = window.confirm("¿Seguro que quieres vaciar la lista de productos?");
     if (!ok) return;
-    setProducts([]);
+    setBusy(true);
+    try {
+      const supabase = getSupabaseClient();
+      const { error } = await supabase
+        .from("products")
+        .delete()
+        // PostgREST requiere un filtro; este truco borra "todo".
+        .neq("id", "00000000-0000-0000-0000-000000000000");
+      if (error) throw error;
+      await loadProducts();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo vaciar la lista.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -174,6 +229,7 @@ export default function Page() {
           <button
             type="button"
             onClick={onAdd}
+            disabled={busy}
             className="mt-1 inline-flex items-center justify-center rounded-xl bg-brand-terracotta px-4 py-2 font-semibold text-white shadow-soft transition hover:brightness-110 active:translate-y-px"
           >
             Agregar producto
@@ -198,7 +254,7 @@ export default function Page() {
             <button
               type="button"
               onClick={onClearAll}
-              disabled={products.length === 0}
+              disabled={busy || products.length === 0}
               className="rounded-xl border border-brand-sand bg-white px-3 py-2 text-sm font-semibold text-brand-gray transition hover:bg-brand-paper disabled:cursor-not-allowed disabled:opacity-60"
               title="Vaciar lista"
             >
@@ -232,6 +288,7 @@ export default function Page() {
                     <button
                       type="button"
                       onClick={() => onRemove(p.id)}
+                      disabled={busy}
                       className="mt-2 rounded-lg border border-brand-sand px-2 py-1 text-xs font-semibold text-brand-gray transition hover:bg-brand-paper"
                     >
                       Quitar
